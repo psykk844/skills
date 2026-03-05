@@ -1,0 +1,20 @@
+{
+  "name": "outlook-email-agent",
+  "version": "1.0.0",
+  "description": "AI-powered Outlook email agent using GLM-4.7 via SiliconFlow - monitors inbox and drafts replies",
+  "main": "index.js",
+  "scripts": {
+    "setup": "node setup.js",
+    "start": "node main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "openai": "^6.25.0",
+    "playwright": "^1.58.2"
+  }
+}
