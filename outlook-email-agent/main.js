@@ -26,13 +26,15 @@ class EmailAgent {
 
   async processEmail(email) {
     const emailKey = `${email.sender}_${email.subject}_${email.date}`;
-    
+
     if (this.processedEmails.has(emailKey)) {
       console.log(`Already processed: ${email.subject}`);
       return null;
     }
 
-    console.log(`\\n--- Processing: ${email.subject} ---`);
+    this.processedEmails.add(emailKey);
+
+    console.log(`\n--- Processing: ${email.subject} ---`);
     console.log(`From: ${email.sender}`);
 
     const classification = this.classifier.classify(email);
@@ -44,25 +46,23 @@ class EmailAgent {
       console.log(`Body: (empty or not extracted)`);
     }
 
-    this.processedEmails.add(emailKey);
-
     if (!classification.needsReply) {
       console.log('📋 Marked: No reply needed');
       return { email, classification, reply: null };
     }
 
     console.log('Generating AI reply draft...');
-    
+
     try {
       const reply = await this.drafter.draftReply(email, classification);
-      
-      console.log('\\nDraft:');
+
+      console.log('\nDraft:');
       console.log(reply);
-      console.log('\\n---');
-      
+      console.log('\n---');
+
       console.log('Saving draft to Outlook...');
       const saved = await this.navigator.saveDraft(email, reply);
-      
+
       if (saved) {
         console.log('✅ Draft saved to Outlook Drafts folder');
         return { email, classification, reply };
@@ -77,9 +77,9 @@ class EmailAgent {
   }
 
   async checkEmails() {
-    console.log(`\\n${'='.repeat(50)}`);
+    console.log('\n==================================================');
     console.log(`Checking emails at ${new Date().toLocaleTimeString()}`);
-    console.log(`${'='.repeat(50)}`);
+    console.log('==================================================');
 
     try {
       const emails = await this.navigator.getUnreadEmails();
@@ -101,7 +101,7 @@ class EmailAgent {
   async startMonitoring() {
     console.log('Starting email agent...');
     console.log(`Check interval: ${config.monitoring.checkIntervalMinutes} minutes`);
-    
+
     await this.init();
 
     await this.navigator.login();

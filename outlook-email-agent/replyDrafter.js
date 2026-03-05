@@ -31,7 +31,7 @@ class ReplyDrafter {
 
   async draftReply(email, importance) {
     const { sender, subject, body } = email;
-    
+
     const prompt = `You are drafting an email reply. Keep it concise and ${config.reply.tone}.
 
 Original Email:
@@ -54,17 +54,32 @@ IMPORTANT: Only provide the email reply text. No explanations, no markdown, no q
       const apiKeyPreview = config.openai.apiKey.substring(0, 10) + '...';
       console.log(`[API] Key: ${apiKeyPreview}`);
 
-      const completion = await this._callWithRetry(async () => {
-        return await this.anthropic.messages.create({
+      const completion = await this._callWithRetry(
+        async () => this.anthropic.messages.create({
           model: config.openai.replyModel,
           max_tokens: 500,
           messages: [
             {
               role: 'user',
-              content: `You are a helpful assistant that drafts professional, concise email replies.\n\n${prompt}`
+              content: `You are a helpful email assistant that drafts professional, concise email replies.\n\n${prompt}`
             }
           ]
-        });
+        })
+      ).catch(error => {
+        if (error.status === 401) {
+          throw new Error(
+            '[AUTH ERROR] Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env file.'
+          );
+        } else if (error.status === 429) {
+          throw new Error(
+            '[RATE LIMIT] Too many requests. Anthropic quota exceeded.'
+          );
+        } else if (error.status >= 500) {
+          throw new Error(
+            '[SERVER ERROR] Anthropic API temporarily unavailable.'
+          );
+        }
+        throw error;
       });
 
       if (!completion?.content?.[0]?.text) {
@@ -78,21 +93,10 @@ IMPORTANT: Only provide the email reply text. No explanations, no markdown, no q
       return reply;
 
     } catch (error) {
-      console.error(`[API ERROR] ${error.message}`);
-
-      if (error.status === 401) {
-        console.error('[API ERROR] 401 Unauthorized - Authentication failed');
-        console.error('[FIX] 1. Verify ANTHROPIC_API_KEY in .env file');
-        console.error('[FIX] 2. Visit https://console.anthropic.com to generate new key');
-        console.error('[FIX] 3. Ensure key format: sk-ant-xxxx...');
-        console.error('[FIX] 4. Check account has credit/quota');
-      } else if (error.status === 429) {
-        console.error('[API ERROR] 429 Rate Limited - Retry later');
-      } else if (error.status === 500) {
-        console.error('[API ERROR] 500 Server Error - Anthropic API issue');
-      }
-
-      throw error;
+      console.error(`[DRAFT ERROR] ${error.message}`);
+      throw new Error(
+        `Failed to draft reply for "${subject}": ${error.message}`
+      );
     }
   }
 }
