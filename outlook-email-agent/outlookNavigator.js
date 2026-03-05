@@ -76,97 +76,136 @@ class OutlookNavigator {
   }
 
   async getUnreadEmails() {
-    console.log('[NAVIGATOR] Initializing Reading Pane extraction...');
+    console.log('[NAVIGATOR] Initializing email extraction...');
     const unreadEmails = [];
     const maxEmails = config.monitoring?.maxEmailsPerCheck || 10;
 
     try {
-      // Navigate to Inbox and wait for the list to be interactive
       await this.page.goto(`${config.outlook.url}/mail/inbox`, {
         waitUntil: 'networkidle',
         timeout: 30000
       });
 
-      // Wait for the mail list container to appear
       await this.page.waitForSelector('[role="main"]', { timeout: 15000 });
+      await this.page.waitForTimeout(2000);
 
-      // Reset focus to the top of the list
-      await this.page.keyboard.press('Home');
-      await this.page.waitForTimeout(1000); // Allow selection UI to catch up
+      const emails = await this.page.evaluate((maxEmails) => {
+        const unreadList = [];
 
-      for (let i = 0; i < maxEmails; i++) {
-        console.log(`[NAVIGATOR] Processing item ${i + 1}...`);
+        const emailRows = Array.from(
+          document.querySelectorAll(
+            '[role="listitem"][data-is-unread="true"], ' +
+            'div[role="row"][aria-label*="unread"], ' +
+            '[data-automation-id*="mail-list-item"]:not([class*="ms-List-cell--isUnread"])'
+          )
+        );
 
-        // Extract metadata from the currently focused list item
-        const emailMetadata = await this.page.evaluate(() => {
-          const activeElement = document.activeElement;
-          const isEmailItem = activeElement?.getAttribute('role') === 'listitem' ||
-                             activeElement?.getAttribute('role') === 'row';
+        if (emailRows.length === 0) {
+          const allRows = Array.from(
+            document.querySelectorAll('[role="listitem"], [role="row"]')
+          );
 
-          if (!isEmailItem) return null;
+          for (const row of allRows) {
+            const className = row.className || '';
+            const hasUnreadClass =
+              className.includes('unread') ||
+              className.includes('ms-List-cell--focused') ||
+              !!row.querySelector('[class*="blue"], [class*="indicator"]');
 
-          // Check if unread: Outlook usually adds an 'unread' class or ARIA label
-          const isUnread = activeElement.getAttribute('aria-label')?.toLowerCase().includes('unread') ||
-                          !!activeElement.querySelector('[class*="unread"]');
+            const text = row.innerText || '';
+            if (text.trim().length > 0 && hasUnreadClass) {
+              emailRows.push(row);
+            }
+          }
+        }
 
-          if (!isUnread) return { skip: true };
+        for (const row of emailRows.slice(0, maxEmails)) {
+          try {
+            const text = row.innerText || '';
+            const lines = text
+              .split('\n')
+              .map(l => l.trim())
+              .filter(l => l.length > 0);
 
-          // Extract sender and subject from the focused row
-          const text = activeElement.innerText || "";
-          const lines = text.split('\n').filter(l => l.trim().length > 0);
+            const sender = lines[0] || 'Unknown Sender';
+            const subject = lines[1] || '(No subject)';
 
-          return {
-            skip: false,
-            sender: lines[0] || "Unknown Sender",
-            subject: lines[1] || "No Subject",
-            isUnread: true
-          };
-        });
+            unreadList.push({
+              sender,
+              subject,
+              rowElement: row.className
+            });
+          } catch (e) {
+            console.error('Error parsing row:', e);
+          }
+        }
 
-        // If we've reached the end or a non-email item, break
-        if (!emailMetadata) break;
+        return unreadList;
+      }, maxEmails);
 
-        // If unread, extract the body from the Reading Pane
-        if (!emailMetadata.skip) {
-          // Wait briefly for the reading pane to update after focus
-          await this.page.waitForTimeout(800);
+      console.log(`[NAVIGATOR] Found ${emails.length} unread emails via DOM query`);
+
+      for (const email of emails) {
+        try {
+          await this.page.evaluate((senderName) => {
+            const rows = Array.from(
+              document.querySelectorAll('[role="listitem"], [role="row"]')
+            );
+            const targetRow = rows.find(row =>
+              row.innerText?.includes(senderName)
+            );
+            if (targetRow) targetRow.click();
+          }, email.sender);
+
+          await this.page.waitForTimeout(1500);
 
           const bodyContent = await this.page.evaluate(() => {
-            // Target the Reading Pane specifically via ARIA regions
-            const readingPane = document.querySelector('[role="region"][aria-label*="Message"], [id*="ReadingPane"]');
-            if (!readingPane) return "Could not locate reading pane content.";
+            const selectors = [
+              '[id*="ReadingPane"]',
+              '[role="region"][aria-label*="Message"]',
+              '[data-automation-id*="ReadingPane"]',
+              '[class*="MessageRoot"]'
+            ];
 
-            // Clone to avoid modifying live DOM, remove potential script tags
-            const content = readingPane.innerText || "";
-            return content.substring(0, 5000).trim(); // Limit length for LLM processing
+            for (const selector of selectors) {
+              const pane = document.querySelector(selector);
+              if (pane && pane.innerText?.trim().length > 0) {
+                return pane.innerText.substring(0, 5000).trim();
+              }
+            }
+
+            return '(Body content not extracted)';
           });
 
           unreadEmails.push({
-            sender: emailMetadata.sender,
-            subject: emailMetadata.subject,
+            sender: email.sender,
+            subject: email.subject,
             body: bodyContent,
             date: new Date().toISOString(),
             unread: true
           });
 
-          console.log(`[NAVIGATOR] ✓ Successfully captured: ${emailMetadata.subject}`);
-        } else {
-          console.log(`[NAVIGATOR] Skipping read email.`);
+          console.log(
+            `[NAVIGATOR] ✓ Extracted: "${email.subject.substring(0, 50)}"`
+          );
+        } catch (e) {
+          console.error(
+            `[NAVIGATOR] Failed to extract body for ${email.subject}:`,
+            e.message
+          );
         }
-
-        // Navigate to the next email
-        await this.page.keyboard.press('ArrowDown');
-        await this.page.waitForTimeout(200); // Small debounce for UI stability
       }
 
-      console.log(`[NAVIGATOR] Finished check. Found ${unreadEmails.length} unread emails.`);
+      console.log(
+        `[NAVIGATOR] Finished extraction. Found ${unreadEmails.length} unread emails.`
+      );
       return unreadEmails;
-
     } catch (error) {
-      console.error(`[NAVIGATOR ERROR] Failed to extract emails: ${error.message}`);
-      // Capture screenshot for debugging if it fails
-      await this.page.screenshot({ path: `error-getUnread-${Date.now()}.png` });
-      return unreadEmails; // Return what we found before the error
+      console.error(`[NAVIGATOR ERROR] ${error.message}`);
+      await this.page
+        .screenshot({ path: `error-getUnread-${Date.now()}.png` })
+        .catch(() => {});
+      return unreadEmails;
     }
   }
 

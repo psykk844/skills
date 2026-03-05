@@ -2,18 +2,26 @@ const config = require('./config');
 
 class EmailClassifier {
   constructor() {
-    this.urgentKeywords = config.importance.urgentKeywords.map(k => k.toLowerCase());
+    this.urgentKeywords = config.importance.urgentKeywords.map(k =>
+      k.toLowerCase()
+    );
     this.clientDomains = config.importance.clientDomains;
-    this.importantSenders = config.importance.importantSenders.map(s => s.toLowerCase());
+    this.importantSenders = config.importance.importantSenders.map(s =>
+      s.toLowerCase()
+    );
   }
 
   classify(email) {
     const { sender, subject, body } = email;
 
-    process.stdout.write(`\n  → Classifying email subject: "${subject?.substring(0, 60) || '(empty)'}"\n`);
+    process.stdout.write(
+      `\n → Classifying: "${subject?.substring(0, 60) || '(empty)'}" from ${
+        sender || 'unknown'
+      }\n`
+    );
 
     const needsReply = this.determineIfNeedsReply(body, subject);
-    
+
     return {
       needsReply,
       body: body || '',
@@ -23,8 +31,9 @@ class EmailClassifier {
 
   determineIfNeedsReply(body, subject) {
     const text = `${body || ''} ${subject || ''}`.toLowerCase();
-
-    console.log(`[CLASSIFY] Text to analyze: "${text.substring(0, 100)}"`);
+    console.log(
+      `[CLASSIFY] Analyzing: "${text.substring(0, 100).replace(/\n/g, ' ')}..."`
+    );
 
     if (this._checkNoReplyPatterns(text)) {
       console.log('[CLASSIFY] ✓ Matched no-reply pattern → NO REPLY');
@@ -38,7 +47,7 @@ class EmailClassifier {
 
     const hasPersonalContent = text.length > 30 && !this._isAutomated(text);
     if (hasPersonalContent) {
-      console.log('[CLASSIFY] ✓ Personal email detected → REPLY NEEDED (default)');
+      console.log('[CLASSIFY] ✓ Personal email detected → REPLY NEEDED');
       return true;
     }
 
@@ -47,92 +56,67 @@ class EmailClassifier {
   }
 
   _checkNoReplyPatterns(text) {
-    if (/no\s+reply\s+needed|no\s+response\s+required|do\s+not\s+reply/.test(text)) {
-      return true;
-    }
+    const noReplyPatterns = [
+      /no\s+reply\s+needed/i,
+      /no\s+response\s+required/i,
+      /do\s+not\s+reply/i,
+      /fyi[\s:]/i,
+      /for\s+your\s+information[\s:]/i,
+      /auto[\s-]?reply/i,
+      /out\s+of\s+office/i,
+      /away[\s:]?(message|status)?/i,
+      /receipt\s+of/i,
+      /transaction\s+receipt/i,
+      /order\s+confirmation/i,
+      /invoice/i,
+      /receipt/i,
+      /tax\s+statement/i,
+      /newsletter/i,
+      /notification/i,
+      /digest/i,
+      /subscription/i,
+      /delivery\s+report/i,
+      /bounced\s+email/i,
+      /undeliverable/i,
+      /^thank\s+you\s+for\s+your\s+email/i,
+      /meeting\s+(invitation|request).*?(accepted|declined|canceled|cancelled)/i,
+      /invitation.*?(accepted|declined|canceled|cancelled)/i
+    ];
 
-    if (/^(fyi|just letting you know|for your information)[\s:]/.test(text)) {
-      return true;
-    }
-
-    if (/auto[\\-]?reply|out\s+of\s+office|away|unattended|currently\s+unavailable/.test(text)) {
-      return true;
-    }
-
-    if (/receipt\s+of|transaction\s+receipt|order\s+confirmation|invoice|statement|tax\s+statement/.test(text)) {
-      return true;
-    }
-
-    if (/newsletter|notification|digest|subscription|delivery\s+report|bounced|undeliverable/.test(text)) {
-      return true;
-    }
-
-    if (/^thank\s+you\s+for\s+your\s+email/.test(text) && text.split(' ').length < 15) {
-      return true;
-    }
-
-    if (/meeting\s+(invitation|request).*(accepted|declined|canceled|cancelled)/i.test(text)) {
-      return true;
-    }
-
-    if (/invitation\s+(accepted|declined|canceled|cancelled)/i.test(text)) {
-      return true;
-    }
-
-    return false;
+    return noReplyPatterns.some(pattern => pattern.test(text));
   }
 
   _checkReplyPatterns(text) {
-    if (/\?|what|when|where|who|how|why|which/.test(text)) {
-      return true;
-    }
+    const replyPatterns = [
+      /\?/,
+      /what|when|where|who|how|why|which/i,
+      /please\s+(let\s+me\s+know|send|provide|confirm|update|review|check|share)/i,
+      /could\s+you|would\s+you|can\s+you|will\s+you/i,
+      /would\s+appreciate/i,
+      /confirm|verify|approve|authorize|review|sign/i,
+      /\bmeeting\b.*?(?!declined|canceled|cancelled)/i,
+      /call|discuss|conference|standup/i,
+      /free\s+for|available\s+(?:on|at|this)/i,
+      /what\s+time|which\s+time|when\s+can\s+you/i,
+      /urgent|asap|immediately|critical|priority|deadline/i,
+      /feedback|opinion|thoughts|suggestions|review/i,
+      /what\s+do\s+you\s+think/i,
+      /please\s+review|please\s+confirm|please\s+note|please\s+see/i
+    ];
 
-    if (/please\s+(let\s+me\s+know|send|provide|confirm|update|review|check|share|forward)/.test(text)) {
-      return true;
-    }
-
-    if (/could\s+you|would\s+you|can\s+you|would\s+appreciate/.test(text)) {
-      return true;
-    }
-
-    if (/confirm|verify|approve|authorize|review|sign|initial/.test(text)) {
-      return true;
-    }
-
-    const acceptedOrDeclined = /accepted|declined|canceled|cancelled/.test(text);
-    
-    if (!acceptedOrDeclined && /\bmeeting\b/i.test(text)) {
-      return true;
-    }
-
-    if (!acceptedOrDeclined && /\b(call|discuss|conference|standup)\b/i.test(text)) {
-      return true;
-    }
-
-    if (/free\s+for|available\s+(?:on|at|this)|what\s+time|which\s+time/.test(text)) {
-      return true;
-    }
-
-    if (/urgent|asap|immediately|critical|priority|deadline|by\s+when|when\s+can\s+you/.test(text)) {
-      return true;
-    }
-
-    if (/feedback|opinion|thoughts|suggestions|review|what\s+do\s+you\s+think/.test(text)) {
-      return true;
-    }
-
-    if (/please\s+review|please\s+confirm|please\s+note/.test(text)) {
-      return true;
-    }
-
-    return false;
+    return replyPatterns.some(pattern => pattern.test(text));
   }
 
   _isAutomated(text) {
     const automatedPatterns = [
-      /auto[\\-]?reply|out\s+of\s+office|away\s+message|vacation\s+message|delivery\s+report|bounced|undeliverable/,
-      /no[\\-]?reply[@\\s]|do[\\-]?not[\\-]?reply|noreply|no_reply/,
-      /^(fyi|just letting you know|for your information)[\s:]/ 
+      /auto[\s-]?reply/i,
+      /out\s+of\s+office/i,
+      /vacation\s+message/i,
+      /delivery\s+report/i,
+      /undeliverable/i,
+      /noreply|no[\s-]?reply[\s:]@/i,
+      /fyi[\s:]/i,
+      /just\s+letting\s+you\s+know/i
     ];
 
     return automatedPatterns.some(pattern => pattern.test(text));

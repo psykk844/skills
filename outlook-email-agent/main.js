@@ -10,6 +10,8 @@ class EmailAgent {
     this.classifier = new EmailClassifier();
     this.drafter = new ReplyDrafter();
     this.processedEmails = new Set();
+    this.isChecking = false;
+    this.checkTimeout = null;
   }
 
   async init() {
@@ -28,7 +30,7 @@ class EmailAgent {
     const emailKey = `${email.sender}_${email.subject}_${email.date}`;
 
     if (this.processedEmails.has(emailKey)) {
-      console.log(`Already processed: ${email.subject}`);
+      console.log(`[SKIP] Already processed: ${email.subject}`);
       return null;
     }
 
@@ -38,10 +40,19 @@ class EmailAgent {
     console.log(`From: ${email.sender}`);
 
     const classification = this.classifier.classify(email);
-    console.log(`Needs Reply: ${classification.needsReply ? 'YES (will draft reply)' : 'NO (will skip drafting)'}`);
+
+    console.log(
+      `Needs Reply: ${
+        classification.needsReply
+          ? 'YES (will draft reply)'
+          : 'NO (will skip drafting)'
+      }`
+    );
 
     if (classification.body && classification.body.trim().length > 0) {
-      console.log(`Body preview: ${classification.body.substring(0, 100)}...`);
+      console.log(
+        `Body preview: ${classification.body.substring(0, 100)}...`
+      );
     } else {
       console.log(`Body: (empty or not extracted)`);
     }
@@ -77,17 +88,29 @@ class EmailAgent {
   }
 
   async checkEmails() {
-    console.log('\n==================================================');
-    console.log(`Checking emails at ${new Date().toLocaleTimeString()}`);
-    console.log('==================================================');
+    if (this.isChecking) {
+      console.log(
+        '[CHECK] Already checking emails, skipping this cycle...'
+      );
+      return;
+    }
+
+    this.isChecking = true;
 
     try {
+      console.log('\n==================================================');
+      console.log(
+        `Checking emails at ${new Date().toLocaleTimeString()}`
+      );
+      console.log('==================================================');
+
       const emails = await this.navigator.getUnreadEmails();
+
       console.log(`Found ${emails.length} unread emails`);
 
       for (const email of emails) {
         await this.processEmail(email);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
       if (emails.length === 0) {
@@ -95,32 +118,54 @@ class EmailAgent {
       }
     } catch (error) {
       console.error('Error checking emails:', error.message);
+    } finally {
+      this.isChecking = false;
     }
   }
 
   async startMonitoring() {
     console.log('Starting email agent...');
-    console.log(`Check interval: ${config.monitoring.checkIntervalMinutes} minutes`);
+    console.log(
+      `Check interval: ${config.monitoring.checkIntervalMinutes} minutes`
+    );
 
     await this.init();
-
     await this.navigator.login();
 
     await this.checkEmails();
 
-    setInterval(async () => {
-      try {
-        await this.checkEmails();
-      } catch (error) {
-        console.error('Error in monitoring loop:', error.message);
+    const intervalMs = config.monitoring.checkIntervalMinutes * 60 * 1000;
+
+    this.monitoringInterval = setInterval(async () => {
+      if (!this.isChecking) {
+        try {
+          await this.checkEmails();
+        } catch (error) {
+          console.error('Error in monitoring loop:', error.message);
+        }
       }
-    }, config.monitoring.checkIntervalMinutes * 60 * 1000);
+    }, intervalMs);
 
     console.log('Monitoring emails... Press Ctrl+C to stop');
   }
 
   async shutdown() {
-    console.log('Shutting down...');
+    console.log('\nShutting down gracefully...');
+
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+    }
+
+    let waitTime = 0;
+    while (this.isChecking && waitTime < 30000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitTime += 100;
+    }
+
+    if (this.isChecking) {
+      console.warn('Check still running after 30s timeout, forcing shutdown');
+    }
+
     await this.navigator.close();
     process.exit(0);
   }
