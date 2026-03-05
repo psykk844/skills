@@ -1,6 +1,6 @@
 # Outlook Email Agent
 
-AI-powered email agent that monitors your Outlook inbox, processes all emails, determines if a reply is needed, and drafts intelligent replies using GLM-4.7.
+AI-powered email agent that monitors your Outlook inbox, processes all emails, determines if a reply is needed, and drafts intelligent replies using Claude 3 Haiku.
 
 ## Features
 
@@ -8,7 +8,7 @@ AI-powered email agent that monitors your Outlook inbox, processes all emails, d
 - ✅ Process **ALL emails** (not just urgent ones)
 - ✅ Classify email importance (high/medium/low) based on sender, keywords, and content
 - ✅ **Smart "No Reply Needed" detection** - tags informational emails automatically
-- ✅ Generate AI-powered reply drafts using GLM-4.7 (via SiliconFlow)
+- ✅ Generate AI-powered reply drafts using Claude 3 Haiku (via Anthropic)
 - ✅ Save replies to Outlook Drafts folder for your review
 - ✅ Runs in headless mode (invisible, no workflow interference)
 - ✅ Persistent login session (login once, stays logged in)
@@ -17,7 +17,7 @@ AI-powered email agent that monitors your Outlook inbox, processes all emails, d
 ## Prerequisites
 
 - Node.js (v16 or higher)
-- SiliconFlow API key (with GLM-4.7 access)
+- Anthropic API key (with Claude access)
 - Outlook account (work or personal)
 
 ## Installation
@@ -37,9 +37,9 @@ npx playwright install chromium
 cp .env.example .env
 ```
 
-4. Edit `.env` and add your SiliconFlow API key:
+4. Edit `.env` and add your Anthropic API key:
 ```
-SILICONFLOW_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
 OUTLOOK_EMAIL=your.email@domain.com
 CHECK_INTERVAL_MINUTES=10
 HEADLESS=true
@@ -127,8 +127,8 @@ Edit `config.js` to customize:
 - `maxAgeHours`: Only process emails from recent timeframe
 
 ### AI Settings
-- `openai.model`: GLM-4.7 (via SiliconFlow)
-- `openai.replyModel`: GLM-4.7 (via SiliconFlow)
+- `openai.model`: claude-3-haiku-20240307 (via Anthropic)
+- `openai.replyModel`: claude-3-haiku-20240307 (via Anthropic)
 - `reply.tone`: Professional yet friendly
 
 ### Monitoring
@@ -154,8 +154,8 @@ Edit `config.js` to customize:
 - Supports 2FA on re-login
 
 ### Cost
-- SiliconFlow API costs: Very affordable (~99% cheaper than OpenAI)
-- Uses GLM-4.7 (excellent balance of quality and speed)
+- Anthropic Claude 3 Haiku: Very cost-effective for email replies
+- Uses Haiku (fast, efficient model designed for tasks)
 - Pro plan optional for high volume
 
 ## Troubleshooting
@@ -164,7 +164,7 @@ Edit `config.js` to customize:
 Run `npm run setup` to re-authenticate
 
 ### No drafts being created
-- Check email: Is SiliconFlow API key valid?
+- Check email: Is Anthropic API key valid?
 - Check logs: Importance scores require 5+ for processing
 - Adjust `urgentKeywords` in `config.js`
 

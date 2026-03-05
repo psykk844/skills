@@ -2,9 +2,10 @@ require('dotenv').config();
 
 const config = {
   openai: {
-    apiKey: process.env.SILICONFLOW_API_KEY || '',
-    model: 'Qwen/Qwen2.5-7B-Instruct',  // Alternative model via SiliconFlow
-    replyModel: 'Qwen/Qwen2.5-7B-Instruct'  // For generating replies
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    baseAPI: 'anthropic',
+    model: 'claude-3-haiku-20240307',  // Fast, cheap model for classification
+    replyModel: 'claude-3-haiku-20240307'  // Fast, cheap model for generating replies
   },
   
   outlook: {

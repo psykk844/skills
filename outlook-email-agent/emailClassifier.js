@@ -13,61 +13,129 @@ class EmailClassifier {
     process.stdout.write(`\n  → Classifying email subject: "${subject?.substring(0, 60) || '(empty)'}"\n`);
 
     const needsReply = this.determineIfNeedsReply(body, subject);
-
+    
     return {
       needsReply,
-      body
+      body: body || '',
+      level: needsReply ? 'high' : 'low'
     };
   }
 
   determineIfNeedsReply(body, subject) {
-    const bodyDebug = body ? body.substring(0, 100) : 'NULL';
-    const bodyLength = body ? body.length : 0;
-    console.log(`    [DEBUG determineIfNeedsReply] body="${bodyDebug}" (length: ${bodyLength}), subject="${subject?.substring(0, 50) || 'NULL'}"`);
+    const text = `${body || ''} ${subject || ''}`.toLowerCase();
 
-    // Indicators that likely need a reply
-    const replyIndicators = [
-      '?', 'question', 'please', 'could you', 'would you', 
-      'can you', 'need', 'require', 'request', 'let me know',
-      'confirm', 'verify', 'update', 'urgent', 'asap',
-      'your thoughts', 'feedback', 'opinion', 'review',
-      'when can', 'by when', 'deadline', 'schedule',
-      'call me', 'phone', 'meeting', 'discuss',
-      'free for', 'available', 'time', 'accepted', 'meeting'
-    ];
+    console.log(`[CLASSIFY] Text to analyze: "${text.substring(0, 100)}"`);
 
-    // Indicators that likely don't need a reply
-    const noReplyIndicators = [
-      'no reply needed', 'no response required', 'for your information',
-      'fyi', 'just letting you know', 'auto-reply', 'out of office',
-      'thank you for your email', 'receipt', 'confirmation',
-      'invoice', 'statement', 'newsletter', 'notification',
-      'invitation accepted', 'invitation declined',
-      'accepted:', 'declined:', 'cancelled:'
-    ];
-
-    let lowerBody = body ? body.toLowerCase() : '';
-    let lowerSubject = subject ? subject.toLowerCase() : '';
-    let textToCheck = lowerBody + ' ' + lowerSubject;
-
-    console.log(`    [DEBUG] textToCheck="${textToCheck.substring(0, 100)}"`);
-
-    // Check for explicit "no reply needed"
-    if (noReplyIndicators.some(indicator => lowerBody.includes(indicator))) {
-      console.log(`    [DEBUG] Found noReplyIndicator, returning false`);
+    if (this._checkNoReplyPatterns(text)) {
+      console.log('[CLASSIFY] ✓ Matched no-reply pattern → NO REPLY');
       return false;
     }
 
-    // Check for questions or requests
-    const foundReplyIndicator = replyIndicators.find(indicator => textToCheck.includes(indicator));
-    if (foundReplyIndicator) {
-      console.log(`    [DEBUG] Found replyIndicator "${foundReplyIndicator}", returning true`);
+    if (this._checkReplyPatterns(text)) {
+      console.log('[CLASSIFY] ✓ Matched reply pattern → REPLY NEEDED');
       return true;
     }
 
-    console.log(`    [DEBUG] No indicators found, defaulting to true`);
-    // Default: if it's a personal email from someone, reply
-    return true;
+    const hasPersonalContent = text.length > 30 && !this._isAutomated(text);
+    if (hasPersonalContent) {
+      console.log('[CLASSIFY] ✓ Personal email detected → REPLY NEEDED (default)');
+      return true;
+    }
+
+    console.log('[CLASSIFY] → NO REPLY (empty or automated)');
+    return false;
+  }
+
+  _checkNoReplyPatterns(text) {
+    if (/no\s+reply\s+needed|no\s+response\s+required|do\s+not\s+reply/.test(text)) {
+      return true;
+    }
+
+    if (/^(fyi|just letting you know|for your information)[\s:]/.test(text)) {
+      return true;
+    }
+
+    if (/auto[\\-]?reply|out\s+of\s+office|away|unattended|currently\s+unavailable/.test(text)) {
+      return true;
+    }
+
+    if (/receipt\s+of|transaction\s+receipt|order\s+confirmation|invoice|statement|tax\s+statement/.test(text)) {
+      return true;
+    }
+
+    if (/newsletter|notification|digest|subscription|delivery\s+report|bounced|undeliverable/.test(text)) {
+      return true;
+    }
+
+    if (/^thank\s+you\s+for\s+your\s+email/.test(text) && text.split(' ').length < 15) {
+      return true;
+    }
+
+    if (/meeting\s+(invitation|request).*(accepted|declined|canceled|cancelled)/i.test(text)) {
+      return true;
+    }
+
+    if (/invitation\s+(accepted|declined|canceled|cancelled)/i.test(text)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  _checkReplyPatterns(text) {
+    if (/\?|what|when|where|who|how|why|which/.test(text)) {
+      return true;
+    }
+
+    if (/please\s+(let\s+me\s+know|send|provide|confirm|update|review|check|share|forward)/.test(text)) {
+      return true;
+    }
+
+    if (/could\s+you|would\s+you|can\s+you|would\s+appreciate/.test(text)) {
+      return true;
+    }
+
+    if (/confirm|verify|approve|authorize|review|sign|initial/.test(text)) {
+      return true;
+    }
+
+    const acceptedOrDeclined = /accepted|declined|canceled|cancelled/.test(text);
+    
+    if (!acceptedOrDeclined && /\bmeeting\b/i.test(text)) {
+      return true;
+    }
+
+    if (!acceptedOrDeclined && /\b(call|discuss|conference|standup)\b/i.test(text)) {
+      return true;
+    }
+
+    if (/free\s+for|available\s+(?:on|at|this)|what\s+time|which\s+time/.test(text)) {
+      return true;
+    }
+
+    if (/urgent|asap|immediately|critical|priority|deadline|by\s+when|when\s+can\s+you/.test(text)) {
+      return true;
+    }
+
+    if (/feedback|opinion|thoughts|suggestions|review|what\s+do\s+you\s+think/.test(text)) {
+      return true;
+    }
+
+    if (/please\s+review|please\s+confirm|please\s+note/.test(text)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  _isAutomated(text) {
+    const automatedPatterns = [
+      /auto[\\-]?reply|out\s+of\s+office|away\s+message|vacation\s+message|delivery\s+report|bounced|undeliverable/,
+      /no[\\-]?reply[@\\s]|do[\\-]?not[\\-]?reply|noreply|no_reply/,
+      /^(fyi|just letting you know|for your information)[\s:]/ 
+    ];
+
+    return automatedPatterns.some(pattern => pattern.test(text));
   }
 }
 

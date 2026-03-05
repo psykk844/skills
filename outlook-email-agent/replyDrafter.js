@@ -1,12 +1,32 @@
-const OpenAI = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
 const config = require('./config');
 
 class ReplyDrafter {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: config.openai.apiKey,
-      baseURL: 'https://api.siliconflow.cn/v1'
+    if (!config.openai.apiKey || config.openai.apiKey.trim() === '') {
+      throw new Error('[INIT ERROR] ANTHROPIC_API_KEY is empty in .env file');
+    }
+
+    this.anthropic = new Anthropic({
+      apiKey: config.openai.apiKey.trim(),
     });
+
+    this.maxRetries = 3;
+    this.retryDelayMs = 1000;
+  }
+
+  async _callWithRetry(fn, retryCount = 0) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.status === 429 && retryCount < this.maxRetries) {
+        const delayMs = this.retryDelayMs * Math.pow(2, retryCount);
+        console.log(`[RETRY] Rate limited. Waiting ${delayMs}ms... (attempt ${retryCount + 1}/${this.maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return this._callWithRetry(fn, retryCount + 1);
+      }
+      throw error;
+    }
   }
 
   async draftReply(email, importance) {
@@ -18,68 +38,61 @@ Original Email:
 From: ${sender}
 Subject: ${subject}
 
-${body}
+Body:
+${body || '(No body content)'}
 
 Requirements:
 1. Acknowledge the sender
 2. Address the main points or questions
-${importance.level === 'high' ? '3. Address urgency immediately' : ''}
-4. Keep it brief (under 150 words)
-5. End with "Best regards, [Your Name]"${config.reply.includeOriginal ? '\\n6. Include a brief quote from the original email for context (1-2 sentences max)' : ''}
+${importance.level === 'high' ? '3. Address urgency immediately\n' : ''}4. Keep it brief (under 150 words)
+5. End with professional closing
 
-IMPORTANT: Only provide the email reply text. No explanations, no "Here is a draft", no quotes around the text. Just the email body ready to send.`;
+IMPORTANT: Only provide the email reply text. No explanations, no markdown, no quotes. Just the email body.`;
 
     try {
-      console.log(`    Calling AI API with model: ${config.openai.replyModel}`);
-      const apiKeyStatus = config.openai.apiKey ? `configured (${config.openai.apiKey.substring(0, 8)}...)` : 'missing';
-      console.log(`    API Key: ${apiKeyStatus}`);
-      console.log(`    Base URL: https://api.siliconflow.cn/v1`);
-      console.log(`    Prompt length: ${prompt.length} chars`);
+      console.log(`[API] Calling Anthropic with model: ${config.openai.replyModel}`);
+      const apiKeyPreview = config.openai.apiKey.substring(0, 10) + '...';
+      console.log(`[API] Key: ${apiKeyPreview}`);
 
-      const completion = await this.openai.chat.completions.create({
-        model: config.openai.replyModel,
-        messages: [
-          { role: 'system', content: 'You are a helpful email assistant. Draft professional, concise email replies.' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 500,
-        temperature: 0.7
-      }).catch(err => {
-        console.error(`    [ERROR] OpenAI API call failed:`);
-        console.error(`    Status: ${err.status}`);
-        console.error(`    Message: ${err.message}`);
-        console.error(`    Type: ${err.type}`);
-        if (err.response) {
-          console.error(`    Response data: ${JSON.stringify(err.response.data, null, 2)}`);
-        }
-        throw err;
+      const completion = await this._callWithRetry(async () => {
+        return await this.anthropic.messages.create({
+          model: config.openai.replyModel,
+          max_tokens: 500,
+          messages: [
+            {
+              role: 'user',
+              content: `You are a helpful assistant that drafts professional, concise email replies.\n\n${prompt}`
+            }
+          ]
+        });
       });
 
-      if (!completion || !completion.choices || completion.choices.length === 0) {
-        throw new Error('Invalid API response - no choices returned');
+      if (!completion?.content?.[0]?.text) {
+        throw new Error('Invalid API response - no content returned');
       }
 
-      let reply = completion.choices[0].message.content || '';
-      reply = reply.trim();
+      let reply = completion.content[0].text.trim();
+      reply = reply.replace(/^```[\s\S]*?```$/gm, '').trim();
 
-      // Remove markdown formatting if present
-      reply = reply.replace(/^"|"$/g, '').replace(/^```.*?```$/gsm, '').trim();
-
-      console.log(`    ✅ AI reply generated (${reply.length} chars)`);
-      console.log(`    Preview: ${reply.substring(0, 80)}...`);
+      console.log(`[API] ✅ Reply generated (${reply.length} chars)`);
       return reply;
+
     } catch (error) {
-      console.error('    ❌ AI API error:', error.message);
+      console.error(`[API ERROR] ${error.message}`);
+
       if (error.status === 401) {
-        console.error('    ❌ 401 Authentication error - Possible issues:');
-        console.error('       - API key is invalid or expired');
-        console.error('       - API key format is incorrect');
-        console.error('       - Base URL is wrong');
-        console.error('    Check your .env file and verify at: https://cloud.siliconflow.cn');
+        console.error('[API ERROR] 401 Unauthorized - Authentication failed');
+        console.error('[FIX] 1. Verify ANTHROPIC_API_KEY in .env file');
+        console.error('[FIX] 2. Visit https://console.anthropic.com to generate new key');
+        console.error('[FIX] 3. Ensure key format: sk-ant-xxxx...');
+        console.error('[FIX] 4. Check account has credit/quota');
       } else if (error.status === 429) {
-        console.error('    ❌ Rate limit exceeded - wait and retry');
+        console.error('[API ERROR] 429 Rate Limited - Retry later');
+      } else if (error.status === 500) {
+        console.error('[API ERROR] 500 Server Error - Anthropic API issue');
       }
-      throw new Error(`Failed to generate AI reply: ${error.message}`);
+
+      throw error;
     }
   }
 }

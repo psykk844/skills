@@ -14,7 +14,7 @@ class EmailAgent {
 
   async init() {
     if (!config.openai.apiKey) {
-      throw new Error('SILICONFLOW_API_KEY not set in .env file');
+      throw new Error('ANTHROPIC_API_KEY not set in .env file');
     }
 
     if (!config.outlook.email) {

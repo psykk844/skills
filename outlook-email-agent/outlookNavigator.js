@@ -7,8 +7,7 @@ class OutlookNavigator {
     this.browser = null;
     this.context = null;
     this.page = null;
-    const timestamp = Date.now();
-    this.userDir = path.join(__dirname, `playwright-profile-${timestamp}`);
+    this.userDir = path.join(__dirname, 'playwright-profile');
   }
 
   async init() {
@@ -174,26 +173,36 @@ class OutlookNavigator {
               });
             });
             
-            // Filter to elements with meaningful content
             const emailLike = emails.filter(e =>
               (e.hasEmail && e.textLength > 20) ||
               (e.hasDate && e.textLength > 30) ||
               (e.textLength > 40 && e.textLength < 500)
             ).filter(e =>
-              // Must have either sender with @ or a proper subject
-              // Exclude login page elements
               (e.sender.includes('@') || e.subject.length > 10)
-            ).filter(e =>
-              !e.subject.toLowerCase().includes('enter password') &&
-              !e.subject.toLowerCase().includes('sign in') &&
-              !e.subject.toLowerCase().includes('login') &&
-              !e.subject.toLowerCase().includes('microsoft account') &&
-              !e.subject.toLowerCase().includes('no account') &&
-              !e.subject.toLowerCase().includes("can't access") &&
-              !e.subject.toLowerCase().includes('create one')
-            ).filter(e =>
-              // Must have a valid-looking subject (not just help text)
+            ).filter(e => {
+              const lowerSubject = e.subject.toLowerCase() || '';
+              const lowerSender = e.sender.toLowerCase() || '';
+              const lowerText = e.fullText.toLowerCase() || '';
+              
+              const loginKeywords = ['enter password', 'sign in', 'login', 'microsoft account', 
+                                    'no account', "can't access", 'create one', 'first time here', 
+                                    'get started', 'register', 'signup', 'authentication', 
+                                    'password required', 'security info', 'verify identity',
+                                    'enter code', 'two-factor', 'mfa', 'next', 'continue'];
+              const helpText = ['find your account', 'keep me signed in', 'forgot password',
+                               'what is this', 'learn more', 'privacy', 'terms of use', 
+                               'help center', 'support'];
+              
+              return !loginKeywords.some(keyword => lowerSubject.includes(keyword) || 
+                                                   lowerSender.includes(keyword) || 
+                                                   lowerText.includes(keyword)) &&
+                     !helpText.some(keyword => lowerSubject.includes(keyword));
+            }).filter(e =>
               e.subject.length > 5 && e.subject.length < 200
+            ).filter(e =>
+              !e.sender.toLowerCase().includes('microsoft') &&
+              !e.sender.toLowerCase().includes('outlook') &&
+              !e.sender.toLowerCase().includes('support')
             );
             console.log(`    Filtered to ${emailLike.length} email candidates (req: sender with @ OR valid subject, excluding login pages)`);
 
@@ -297,7 +306,6 @@ class OutlookNavigator {
             }
           }
           
-          // Try to find body
           const possibleBodies = [
             document.querySelector('[data-testid="body"]'),
             document.querySelector('[role="region"][aria-label*="message"], [role="region"][aria-label*="Message"]'),
@@ -307,7 +315,12 @@ class OutlookNavigator {
             document.querySelector('div[role="document"]'),
             document.querySelector('.ms-ScrollablePane > div'),
             document.querySelector('[class*="content"]'),
-            document.querySelector('[class*="body"]')
+            document.querySelector('[class*="body"]'),
+            document.querySelector('[class*="composeContentEditor"]'),
+            document.querySelector('[contenteditable="true"]'),
+            document.querySelector('[data-is-scrollable="true"]'),
+            document.querySelector('.ms-ScrollablePane-root > div'),
+            document.querySelector('[class*="RichTextEditor"]')
           ];
 
           console.log(`DEBUG: Looking for email body...`);
@@ -316,7 +329,8 @@ class OutlookNavigator {
             if (el) {
               const text = el.textContent || '';
               console.log(`DEBUG: Body selector candidate: ${el.tagName}.${el.className?.substring(0, 30) || ''}, textLength=${text.trim().length}`);
-              if (text.trim().length > 50) {
+              
+              if (text.trim().length > 50 && text.trim().length < 10000) {
                 result.body = text.trim();
                 console.log(`Found body: ${result.body.substring(0, 50)}...`);
                 break;
@@ -324,16 +338,27 @@ class OutlookNavigator {
             }
           }
 
-          // If still no body, try broader search
           if (!result.body || result.body.length < 20) {
             console.log(`DEBUG: No body found yet, trying broader search...`);
             const allDivs = Array.from(document.querySelectorAll('div'));
-            for (const div of allDivs) {
+            
+            const excludedClasses = ['ms-Dialog', 'ms-Panel', 'ms-Modal', 'ms-Fabric', 'ms-Overlay', 
+                                     'ms-Spinner', 'ms-ProgressIndicator', 'ms-Button', 'ms-ComboBox',
+                                     'ms-Dropdown', 'ms-TextField', 'ms-Checkbox', 'ms-ChoiceGroup'];
+            
+            const bodyDivs = allDivs.filter(div => {
+              const className = div.className || '';
+              return !excludedClasses.some(excl => className.includes(excl));
+            });
+            
+            for (const div of bodyDivs) {
               const text = div.textContent || '';
-              if (text.trim().length > 100 && text.trim().length < 5000) {
+              if (text.trim().length > 100 && text.trim().length < 10000) {
                 const hasPunctuation = /[.!?]/.test(text);
                 const hasNewlines = text.includes('\n');
-                if (hasPunctuation || hasNewlines) {
+                const notJustLinks = !text.match(/^https?:\/\/|^www\./);
+                
+                if ((hasPunctuation || hasNewlines) && notJustLinks) {
                   result.body = text.trim();
                   console.log(`Found body via fallback: ${result.body.substring(0, 50)}...`);
                   break;
@@ -409,11 +434,9 @@ class OutlookNavigator {
   }
 
   async extractEmailsDirectly() {
-    // Try Outlook-specific selectors first
     const outlookSpecific = await this.page.evaluate(() => {
       const results = [];
 
-      // Try multiple Outlook-specific selectors for email rows
       const selectors = [
         'div[role="listitem"][role="row"]',
         'div[role="row"].ms-FocusZone',
@@ -436,13 +459,11 @@ class OutlookNavigator {
 
             const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-            // Try to find email/sender
             let sender = lines.find(l => l.includes('@') && l.includes('.'));
             if (!sender) {
               sender = lines.find(l => l.length > 5 && l.length < 100 && l.split(' ').length >= 2);
             }
 
-            // Try to find subject (line after sender/time)
             let subject = '';
             for (let i = 0; i < lines.length; i++) {
               const line = lines[i];
@@ -479,18 +500,31 @@ class OutlookNavigator {
     });
 
     if (outlookSpecific.length > 0) {
-      console.log(`    Found ${outlookSpecific.length} clickable email rows (Outlook-specific)`);
-      outlookSpecific.forEach((e, i) => {
+      const filteredEmails = outlookSpecific.filter(e => {
+        const subject = e.subject.toLowerCase() || '';
+        const text = e.text.toLowerCase() || '';
+        const sender = e.sender.toLowerCase() || '';
+
+        const folderKeywords = ['deleted items', 'sent items', 'conversation history', 'drafts', 'junk', 'archive', 'trash', 'spam'];
+        const hasFolderName = folderKeywords.some(kw => subject.includes(kw) || text.includes(kw));
+        
+        const categoryLike = /^\d+\./.test(subject) || /^[a-z]\./.test(subject);
+        
+        const hasRealEmail = /[\w.-]+@[\w.-]+\.\w+/.test(e.sender) || e.sender.length > 5;
+
+        return hasRealEmail && !hasFolderName && !categoryLike;
+      });
+
+      console.log(`    Found ${filteredEmails.length} filtered email rows (Outlook-specific)`);
+      filteredEmails.forEach((e, i) => {
         console.log(`      ${i + 1}. ${e.sender}: "${e.subject.substring(0, 40)}"`);
       });
-      return outlookSpecific;
+      return filteredEmails;
     }
 
-    // Fallback: Find clickable elements that contain sender names and subjects
     const emails = await this.page.evaluate(() => {
       const results = [];
 
-      // Look for elements that might be clickable email rows
       const clickables = Array.from(document.querySelectorAll('div, li, a, [role="listitem"], [role="button"]'));
 
       for (const el of clickables) {
@@ -501,9 +535,7 @@ class OutlookNavigator {
                            el.getAttribute('role') === 'listitem' ||
                            el.onclick !== null;
 
-        // Look for elements with sender names and that are substantial
         if (isClickable && text.length > 30 && text.length < 500) {
-          // Check if it looks like an email entry
           const hasSender = /\w+\s+\w+@/.test(text) || /\w+\s+\w{2,}/.test(text);
           const hasSubject = text.split('\n').some(line => line.length > 10 && line.length < 100);
           const hasTime = /\d{1,2}:\d{2}/.test(text);
@@ -511,12 +543,10 @@ class OutlookNavigator {
           if ((hasSender || hasTime) && hasSubject) {
             const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-            // Try to identify sender (has email or pattern)
             let sender = lines.find(l => l.includes('@') && l.includes('.')) ||
                         lines.find(l => /^[\w\s]{5,50}$/.test(l) && l.split(' ').length >= 2) ||
                         lines[0] || '';
 
-            // Try to identify subject (reasonable length, no email)
             let subject = lines.find(l => l.length > 10 && l.length < 150 && !l.includes('@') && !l.includes(':')) ||
                           lines[lines.length - 1] || '';
 
@@ -535,7 +565,6 @@ class OutlookNavigator {
         }
       }
 
-      // Remove duplicates
       const unique = [];
       const seen = new Set();
 
@@ -550,12 +579,23 @@ class OutlookNavigator {
       return unique;
     });
 
-    console.log(`    Found ${emails.length} clickable email rows (fallback)`);
-    emails.forEach((e, i) => {
+    const filteredEmails = emails.filter(e => {
+      const subject = e.subject.toLowerCase() || '';
+      const text = e.text.toLowerCase() || '';
+      const folderKeywords = ['deleted items', 'sent items', 'conversation history', 'drafts', 'junk', 'archive', 'trash', 'spam'];
+      const hasFolderName = folderKeywords.some(kw => subject.includes(kw) || text.includes(kw));
+      const categoryLike = /^\d+\./.test(subject) || /^[a-z]\./.test(subject);
+      const hasRealEmail = /[\w.-]+@[\w.-]+\.\w+/.test(e.sender) || e.sender.length > 5;
+
+      return hasRealEmail && !hasFolderName && !categoryLike;
+    });
+
+    console.log(`    Found ${filteredEmails.length} clickable email rows (fallback)`);
+    filteredEmails.forEach((e, i) => {
       console.log(`      ${i + 1}. ${e.sender}: "${e.subject.substring(0, 40)}"`);
     });
 
-    return emails;
+    return filteredEmails;
   }
 
   async saveDraft(email, replyDraft) {
