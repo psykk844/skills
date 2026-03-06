@@ -84,12 +84,12 @@ async function advancedDebug() {
         }));
 
       // Strategy 3: Check what's in the main container
-      const mainContainer = document.querySelector('[role="main"], main');
-      const mainContent = mainContainer ? {
-        tagName: mainContainer.tagName,
-        className: mainContainer.className?.substring(0, 100) || '',
-        childrenCount: mainContainer.children?.length || 0,
-        directChildren: Array.from(mainContainer.children).slice(0, 5).map(child => ({
+      const mainContainerEl = document.querySelector('[role="main"], main');
+      const mainContent = mainContainerEl ? {
+        tagName: mainContainerEl.tagName,
+        className: mainContainerEl.className?.substring(0, 100) || '',
+        childrenCount: mainContainerEl.children?.length || 0,
+        directChildren: Array.from(mainContainerEl.children).slice(0, 5).map(child => ({
           tagName: child.tagName,
           className: child.className?.substring(0, 80) || '',
           textPreview: child.textContent?.substring(0, 50) || ''
@@ -128,7 +128,7 @@ async function advancedDebug() {
       return {
         emailCandidates: emailCandidates.slice(0, 10),
         clickableElements,
-        mainContainer,
+        mainContainer: mainContent,
         listContainers,
         subjectLike
       };

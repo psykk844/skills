@@ -4,8 +4,8 @@ const config = {
   openai: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
     baseAPI: 'anthropic',
-    model: 'claude-3-haiku-20240307',  // Fast, cheap model for classification
-    replyModel: 'claude-3-haiku-20240307'  // Fast, cheap model for generating replies
+    model: 'claude-3-haiku-20240307',  // Fast model for classification
+    replyModel: 'claude-sonnet-4-20250514'  // Best model for reply drafting
   },
   
   outlook: {
@@ -16,7 +16,7 @@ const config = {
   
   monitoring: {
     checkIntervalMinutes: parseInt(process.env.CHECK_INTERVAL_MINUTES) || 10,
-    maxEmailsPerCheck: 10,
+    maxEmailsPerCheck: 1,
     checkUnreadOnly: false  // Process all emails for testing
   },
   

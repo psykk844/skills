@@ -3,3 +3,16 @@ node_modules/
 playwright-report/
 test-results/
 */.env
+
+# Playwright browser profiles (contain session cookies, cache, binary files)
+playwright-profile/
+playwright-profile-*/
+
+# Debug screenshots and artifacts
+debug-screenshot-*.png
+error-getUnread-*.png
+debug-error.png
+dom-inspect.png
+outlook-dom-analysis.html
+*.txt
+*.pdf

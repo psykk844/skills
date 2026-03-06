@@ -7,7 +7,12 @@
     "setup": "node setup.js",
     "start": "node main.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "debug:emails": "node debug-email-extraction.js"
+    "debug:emails": "node debug-email-extraction.js",
+    "debug:advanced": "node debug-advanced.js",
+    "debug:inbox": "node debug-inbox.js",
+    "debug:structure": "node debug-structure.js",
+    "debug:selectors": "node find-selectors.js",
+    "inspect": "node inspect-outlook.js"
   },
   "keywords": [],
   "author": "",
