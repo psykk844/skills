@@ -135,31 +135,70 @@ class OutlookNavigator {
     return null;
   }
 
+  async checkSession() {
+    try {
+      await this.page.goto(`${config.outlook.url}/mail/inbox`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+      const url = this.page.url();
+      const isLoginPage = url.includes('login.microsoftonline.com') || url.includes('login.live.com');
+
+      if (isLoginPage) {
+        console.log('\n==================================================');
+        console.log('SESSION EXPIRED - ACTION REQUIRED');
+        console.log('Your Outlook session has expired (e.g. PC woke from sleep).');
+        console.log('The browser window will open for you to log in.');
+        console.log('You have 90 seconds to complete login.');
+        console.log('==================================================\n');
+
+        // Force visible mode for re-login
+        if (config.outlook.headless) {
+          console.log('[SESSION] Note: running headless - you may need to restart with HEADLESS=false to log in');
+          return false;
+        }
+
+        try {
+          await this.page.waitForFunction(
+            () => !window.location.href.includes('login.microsoftonline.com') && !window.location.href.includes('login.live.com'),
+            { timeout: 90000 }
+          );
+          console.log('[SESSION] Re-login successful - resuming normal operation');
+          return true;
+        } catch {
+          console.log('\n==================================================');
+          console.log('SESSION RE-LOGIN TIMED OUT');
+          console.log('Could not restore session within 90 seconds.');
+          console.log('Email checks are paused. Restart the agent to try again.');
+          console.log('==================================================\n');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (e) {
+      console.log('[SESSION] Health check failed:', e.message);
+      return false;
+    }
+  }
+
   async getUnreadEmails() {
     console.log('[NAVIGATOR] Initializing email extraction...');
     const unreadEmails = [];
     const maxEmails = config.monitoring?.maxEmailsPerCheck || 10;
 
     try {
-      await this.page.goto(`${config.outlook.url}/mail/inbox`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
-      });
+      const sessionOk = await this.checkSession();
+      if (!sessionOk) {
+        return unreadEmails;
+      }
 
-      // Check we're not on a login page
       const currentUrl = this.page.url();
       if (currentUrl.includes('login.microsoftonline.com') || currentUrl.includes('login.live.com')) {
-        console.log('[NAVIGATOR] ⚠ Redirected to login page - session may have expired!');
-        console.log('[NAVIGATOR] Run: npm run setup  to re-authenticate');
         return unreadEmails;
       }
 
       await this._waitForEmailList();
-
-      // Take screenshot so we can see what Playwright actually sees
-      const screenshotPath = `debug-screenshot-${Date.now()}.png`;
-      await this.page.screenshot({ path: screenshotPath }).catch(() => {});
-      console.log(`[NAVIGATOR] Screenshot saved: ${screenshotPath}`);
 
       const emails = await this.page.evaluate((maxEmails) => {
         // Outlook uses role="listbox" + role="option" for the email list

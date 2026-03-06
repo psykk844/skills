@@ -5,7 +5,7 @@ const config = {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
     baseAPI: 'anthropic',
     model: 'claude-3-haiku-20240307',  // Fast model for classification
-    replyModel: 'claude-sonnet-4-20250514'  // Best model for reply drafting
+    replyModel: 'claude-3-5-haiku-20241022'  // Testing: cheaper model for drafting to stay within 30k TPM
   },
   
   outlook: {
@@ -16,8 +16,8 @@ const config = {
   
   monitoring: {
     checkIntervalMinutes: parseInt(process.env.CHECK_INTERVAL_MINUTES) || 10,
-    maxEmailsPerCheck: 1,
-    checkUnreadOnly: false  // Process all emails for testing
+    maxEmailsPerCheck: 3,
+    checkUnreadOnly: true  // Only process unread emails to avoid redundant API calls
   },
   
   importance: {

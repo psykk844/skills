@@ -11,8 +11,8 @@ class ReplyDrafter {
       apiKey: config.openai.apiKey.trim(),
     });
 
-    this.maxRetries = 3;
-    this.retryDelayMs = 1000;
+    this.maxRetries = 4;
+    this.retryDelayMs = 15000; // 15s base — gives token-per-minute window time to refill
   }
 
   async _callWithRetry(fn, retryCount = 0) {
@@ -29,39 +29,55 @@ class ReplyDrafter {
     }
   }
 
+  _cleanBody(body) {
+    if (!body) return '(No body content)';
+    // Strip Outlook UI chrome that gets mixed into innerText
+    return body
+      .replace(/^Summarise\n/gm, '')
+      .replace(/^Reply\n/gm, '')
+      .replace(/^Reply all\n/gm, '')
+      .replace(/^Forward\n/gm, '')
+      .replace(/^Like\n/gm, '')
+      .replace(/Book time to meet with me\n?/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  _senderFirstName(sender) {
+    // sender is typically "Firstname Lastname" or "Firstname.Lastname@domain.com"
+    const name = sender.split(/[@.<]/)[0].trim();
+    return name.split(/\s+/)[0] || sender;
+  }
+
   async draftReply(email, importance) {
     const { sender, subject, body } = email;
+    // Cap body at 800 chars to stay well within token budget
+    const cleanedBody = this._cleanBody(body).substring(0, 800);
+    const firstName = this._senderFirstName(sender);
+    const myFirstName = (config.outlook.email.split('.')[0] || 'Felicia');
 
-    const prompt = `You are drafting an email reply. Keep it concise and ${config.reply.tone}.
+    // System prompt kept separate so it isn't counted twice in the user turn
+    const systemPrompt = `You draft short email replies for ${myFirstName}. Tone: ${config.reply.tone}. Reply only with the plain email text — no markdown, no explanations, under 120 words.`;
 
-Original Email:
-From: ${sender}
+    const userPrompt = `From: ${sender}
 Subject: ${subject}
-
-Body:
-${body || '(No body content)'}
-
-Requirements:
-1. Acknowledge the sender
-2. Address the main points or questions
-${importance.level === 'high' ? '3. Address urgency immediately\n' : ''}4. Keep it brief (under 150 words)
-5. End with professional closing
-
-IMPORTANT: Only provide the email reply text. No explanations, no markdown, no quotes. Just the email body.`;
+---
+${cleanedBody}
+---
+Reply addressing ${firstName} by first name. Sign off as ${myFirstName}. No placeholders like "[Your Name]".`;
 
     try {
       console.log(`[API] Calling Anthropic with model: ${config.openai.replyModel}`);
-      const apiKeyPreview = config.openai.apiKey.substring(0, 10) + '...';
-      console.log(`[API] Key: ${apiKeyPreview}`);
 
       const completion = await this._callWithRetry(
         async () => this.anthropic.messages.create({
           model: config.openai.replyModel,
-          max_tokens: 500,
+          max_tokens: 300,
+          system: systemPrompt,
           messages: [
             {
               role: 'user',
-              content: `You are a helpful email assistant that drafts professional, concise email replies.\n\n${prompt}`
+              content: userPrompt
             }
           ]
         })
@@ -89,7 +105,8 @@ IMPORTANT: Only provide the email reply text. No explanations, no markdown, no q
       let reply = completion.content[0].text.trim();
       reply = reply.replace(/^```[\s\S]*?```$/gm, '').trim();
 
-      console.log(`[API] ✅ Reply generated (${reply.length} chars)`);
+      const usage = completion.usage || {};
+      console.log(`[API] ✅ Reply generated (${reply.length} chars) | tokens: ${usage.input_tokens || '?'} in / ${usage.output_tokens || '?'} out`);
       return reply;
 
     } catch (error) {

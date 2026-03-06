@@ -1,15 +1,44 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 const OutlookNavigator = require('./outlookNavigator');
 const EmailClassifier = require('./emailClassifier');
 const ReplyDrafter = require('./replyDrafter');
+
+const CACHE_FILE = path.join(__dirname, '.processed-emails-cache.json');
+const MAX_CACHE_SIZE = 500; // cap so the file doesn't grow forever
+
+function loadCache() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      return new Set(Array.isArray(data) ? data : []);
+    }
+  } catch (_) {}
+  return new Set();
+}
+
+function saveCache(set) {
+  try {
+    let entries = Array.from(set);
+    // Keep only the most recent MAX_CACHE_SIZE entries
+    if (entries.length > MAX_CACHE_SIZE) {
+      entries = entries.slice(entries.length - MAX_CACHE_SIZE);
+    }
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(entries), 'utf8');
+  } catch (e) {
+    console.warn('[CACHE] Could not save processed-email cache:', e.message);
+  }
+}
 
 class EmailAgent {
   constructor() {
     this.navigator = new OutlookNavigator();
     this.classifier = new EmailClassifier();
     this.drafter = new ReplyDrafter();
-    this.processedEmails = new Set();
+    this.processedEmails = loadCache();
+    console.log(`[CACHE] Loaded ${this.processedEmails.size} previously processed email keys`);
     this.isChecking = false;
     this.checkTimeout = null;
   }
@@ -35,6 +64,7 @@ class EmailAgent {
     }
 
     this.processedEmails.add(emailKey);
+    saveCache(this.processedEmails);
 
     console.log(`\n--- Processing: ${email.subject} ---`);
     console.log(`From: ${email.sender}`);
@@ -110,7 +140,8 @@ class EmailAgent {
 
       for (const email of emails) {
         await this.processEmail(email);
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Minimum 8s between emails to avoid bursting the 30k TPM org limit
+        await new Promise(resolve => setTimeout(resolve, 8000));
       }
 
       if (emails.length === 0) {

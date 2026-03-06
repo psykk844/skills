@@ -3,14 +3,10 @@ const { chromium } = require('playwright');
 const config = require('./config');
 const path = require('path');
 
-async function setupOutlook() {
-  console.log('=== Outlook Email Agent Setup ===\\n');
-  console.log('This will help you log into Outlook for the first time.');
-  console.log('After successful login, your session will be saved locally.\\n');
-
+async function setup() {
   const userDir = path.join(__dirname, 'playwright-profile');
 
-  console.log('Launching browser...');
+  console.log('Opening browser - please log into Outlook...');
   const browser = await chromium.launchPersistentContext(userDir, {
     headless: false,
     viewport: { width: 1920, height: 1080 },
@@ -18,43 +14,28 @@ async function setupOutlook() {
   });
 
   const page = browser.pages()[0] || await browser.newPage();
+  await page.goto(config.outlook.url, { waitUntil: 'networkidle', timeout: 30000 });
 
-  await page.goto(config.outlook.url, { waitUntil: 'networkidle' });
+  console.log('Waiting for you to log in... (auto-detects when inbox is ready)');
 
-  console.log('\\n✓ Browser opened');
-  console.log('\\nINSTRUCTIONS:');
-  console.log('1. Log in to your Outlook account');
-  console.log('2. If prompted, grant any necessary permissions');
-  console.log('3. Wait until you see your inbox');
-  console.log('4. Type "done" in this terminal to save the session and exit.\\n');
+  // Auto-detect successful login - no typing needed
+  try {
+    await page.waitForFunction(() => {
+      const url = window.location.href;
+      return (url.includes('outlook.cloud.microsoft/mail') || url.includes('outlook.office.com/mail')) &&
+             !url.includes('login.microsoftonline.com');
+    }, { timeout: 120000 });
 
-  const lineReader = require('readline').createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
+    console.log('Logged in! Waiting for inbox to fully load...');
+    await page.waitForTimeout(4000);
+    console.log('Session saved. Browser closing...');
+  } catch (e) {
+    console.log('Timed out waiting for login. Please try again.');
+  }
 
-  lineReader.question('Type "done" when you have logged in and can see your inbox: ', (answer) => {
-    if (answer.toLowerCase().trim() === 'done') {
-      console.log('\\n✓ Session saved!');
-      console.log('\\nYou can now run the email agent with: node main.js');
-      console.log('Your login session will be persisted automatically.\\n');
-      
-      browser.close();
-      lineReader.close();
-      process.exit(0);
-    } else {
-      console.log('Type "done" when ready');
-    }
-  });
-
-  browser.on('disconnected', () => {
-    console.log('\\nBrowser closed unexpectedly. Please try again.');
-    lineReader.close();
-    process.exit(1);
-  });
+  await browser.close();
+  console.log('Done! Run: npm start');
+  process.exit(0);
 }
 
-setupOutlook().catch(error => {
-  console.error('Setup failed:', error.message);
-  process.exit(1);
-});
+setup().catch(e => { console.error('Setup failed:', e.message); process.exit(1); });
